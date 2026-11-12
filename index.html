@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nido</title>
+<meta name="theme-color" content="#1f7a5a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Nido">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <button class="nav-btn" id="prevMonth" aria-label="Mes anterior">‹</button>
+  <h1 id="monthTitle">Mes</h1>
+  <button class="nav-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
+  <button class="nav-btn gear" id="openAjustes" aria-label="Ajustes">⚙️</button>
+</header>
+<nav class="subtabs" id="finTabs" hidden>
+  <button data-view="gastos">Gastos</button>
+  <button data-view="resumen">Resumen</button>
+  <button data-view="ingresos">Ingresos</button>
+  <button data-view="ahorro">Ahorro</button>
+</nav>
+
+<main>
+  <!-- INICIO -->
+  <section class="view" id="view-inicio"><div id="inicioBody"></div></section>
+
+  <!-- TRÁMITES -->
+  <section class="view" id="view-tramites" hidden><div id="tramitesBody"></div></section>
+
+  <!-- TURNOS MÉDICOS -->
+  <section class="view" id="view-turnos" hidden><div id="turnosBody"></div></section>
+
+  <!-- PROYECTOS -->
+  <section class="view" id="view-proyectos" hidden><div id="proyectosBody"></div></section>
+
+  <!-- FINANZAS: GASTOS -->
+  <section class="view" id="view-gastos" hidden>
+    <div class="summary card">
+      <div class="sum-main">
+        <span class="label">Te queda</span>
+        <span class="big" id="sumRestante">$0</span>
+      </div>
+      <div class="sum-grid">
+        <div><span class="label">Ingresos</span><b id="sumIngresos">$0</b></div>
+        <div><span class="label">Gastado</span><b id="sumGastado">$0</b></div>
+        <div><span class="label">Gasto x día</span><b id="sumPorDia">$0</b></div>
+        <div><span class="label">Podés gastar x día</span><b id="sumDisponibleDia">$0</b></div>
+      </div>
+      <div class="bar"><div class="bar-fill" id="sumBar"></div></div>
+    </div>
+    <div class="note-box card" id="monthNoteBox">
+      <label class="label" for="monthNote">Nota del mes</label>
+      <textarea id="monthNote" rows="1" placeholder="Ej: evitar gastar en boludeces"></textarea>
+    </div>
+    <div id="gastosList"></div>
+  </section>
+
+  <!-- RESUMEN -->
+  <section class="view" id="view-resumen" hidden>
+    <div class="card">
+      <h2>🦉 Tu plan de mejora</h2>
+      <div id="planList"></div>
+      <div id="planLogrados"></div>
+    </div>
+    <div class="card">
+      <h2>Informes de fin de mes</h2>
+      <div id="informesList"></div>
+      <button class="btn ghost full" id="informePreliminar">Ver cómo viene este mes</button>
+    </div>
+    <div class="card">
+      <h2>Por categoría</h2>
+      <div id="catBreakdown"></div>
+    </div>
+    <div class="card">
+      <h2>Cuánto quedó cada mes</h2>
+      <div id="monthsHistory"></div>
+    </div>
+  </section>
+
+  <!-- INGRESOS -->
+  <section class="view" id="view-ingresos" hidden>
+    <div class="card">
+      <h2>Ingresos del mes</h2>
+      <div id="ingresosList"></div>
+      <button class="btn secondary full" id="addIngreso">+ Agregar ingreso</button>
+      <button class="btn ghost full" id="copyIngresos">Copiar ingresos del mes anterior</button>
+    </div>
+    <div class="card">
+      <h2>Gastos fijos</h2>
+      <p class="muted">Copiá los gastos marcados como fijos (alquiler, expensas, servicios…) del mes anterior a este mes.</p>
+      <button class="btn ghost full" id="copyFijos">Copiar gastos fijos del mes anterior</button>
+    </div>
+  </section>
+
+  <!-- AHORRO -->
+  <section class="view" id="view-ahorro" hidden>
+    <div class="summary card">
+      <div class="sum-main">
+        <span class="label">Ahorro total</span>
+        <span class="big" id="ahorroTotal">0</span>
+      </div>
+      <div id="ahorroOtras" class="muted"></div>
+    </div>
+    <div class="card">
+      <div id="ahorrosList"></div>
+      <button class="btn secondary full" id="addAhorro">+ Agregar cuenta de ahorro</button>
+    </div>
+  </section>
+
+  <!-- AJUSTES -->
+  <section class="view" id="view-ajustes" hidden>
+    <div class="card">
+      <h2>🦉 Lechuza</h2>
+      <label class="label" for="miNombre">¿Cómo querés que te llame?</label>
+      <input id="miNombre" type="text" autocomplete="off" placeholder="Ej: Lu">
+      <label class="label" for="metaAhorro">Meta de ahorro (% de tus ingresos)</label>
+      <input id="metaAhorro" type="number" inputmode="numeric" min="1" max="80" step="1">
+      <label class="check"><input id="hablarAlAbrir" type="checkbox"> Que el chat con Lechuza se abra solo al entrar a la app</label>
+      <p class="muted small">Si no lo tildás, Lechuza te avisa con un puntito rojo y le hablás cuando quieras.</p>
+    </div>
+    <div class="card">
+      <h2>Sincronizar con GitHub</h2>
+      <p class="muted">Guarda tus datos en un <i>Gist secreto</i> de tu cuenta de GitHub. Conectá la compu y el celu con tu token y lo que cargues en uno aparece en el otro.</p>
+      <label class="label" for="ghToken">Token de GitHub (permiso "gist")</label>
+      <input id="ghToken" type="password" autocomplete="off" placeholder="ghp_...">
+      <label class="label" for="ghGist">ID del Gist (se completa solo)</label>
+      <input id="ghGist" type="text" autocomplete="off" placeholder="dejalo vacío">
+      <div class="row">
+        <button class="btn primary grow" id="ghSave">Conectar</button>
+        <button class="btn ghost" id="ghDisconnect">Desconectar</button>
+      </div>
+      <button class="btn secondary full" id="ghSyncNow">Sincronizar ahora</button>
+      <p class="muted small" id="ghStatus"></p>
+      <p class="muted small" id="ghInfo"></p>
+    </div>
+    <div class="card">
+      <h2>Categorías</h2>
+      <div id="catsEdit" class="chips"></div>
+      <div class="row">
+        <input id="newCat" type="text" placeholder="Nueva categoría">
+        <button class="btn secondary" id="addCat">Agregar</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Exportar / importar</h2>
+      <button class="btn ghost full" id="exportCsv">Descargar este mes en CSV (Excel)</button>
+      <button class="btn ghost full" id="exportJson">Descargar backup completo (JSON)</button>
+      <label class="btn ghost full file-btn">Importar backup (JSON)
+        <input type="file" id="importJson" accept="application/json,.json" hidden>
+      </label>
+    </div>
+  </section>
+</main>
+
+<button class="fab" id="fab" aria-label="Cargar gasto">+</button>
+
+<nav class="tabs">
+  <button data-view="inicio" class="active"><span>🪺</span>Inicio</button>
+  <button data-view="finanzas"><span>💰</span>Finanzas</button>
+  <button data-view="tramites"><span>📋</span>Trámites</button>
+  <button data-view="turnos"><span>🩺</span>Turnos</button>
+  <button data-view="proyectos"><span>🎯</span>Proyectos</button>
+</nav>
+
+<!-- Hoja para cargar/editar -->
+<div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+<form class="sheet" id="sheet" hidden autocomplete="off">
+  <div class="sheet-handle"></div>
+  <h2 id="sheetTitle">Nuevo gasto</h2>
+  <div id="sheetBody"></div>
+  <div class="row" id="sheetActions">
+    <button type="button" class="btn danger" id="sheetDelete" hidden>Borrar</button>
+    <button type="button" class="btn ghost" id="sheetCancel">Cancelar</button>
+    <button type="submit" class="btn primary grow">Guardar</button>
+  </div>
+</form>
+
+<div class="toast" id="toast" hidden></div>
+<div class="snack" id="snack" hidden></div>
+
+<!-- Informe mensual -->
+<div class="panel" id="informePanel" hidden>
+  <div class="panel-top">
+    <b>Informe mensual</b>
+    <button class="nav-btn" id="informeCerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <div class="panel-body" id="informeBody"></div>
+</div>
+
+<script src="asesor.js"></script>
+<script src="chat.js"></script>
+<script src="vida.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -9,8 +9,12 @@ const GIST_FILE = 'nido.json';
 const GIST_DESC = 'Backup app Nido';
 const OLD_STORE_KEY = 'gastos-data-v1';
 const OLD_GH_KEY = 'gastos-github-v1';
-const APP_VERSION = '7';
-const LISTAS_VIDA = ['tramites', 'turnos', 'proyectos', 'tareas'];
+const OLD_GIST_FILE = 'gastos.json';
+const OLD_GIST_DESC = 'Backup app Mis Gastos';
+const RESPALDO_KEY = 'nido-respaldo';
+const APP_VERSION = '8';
+// Listas que se sincronizan elemento por elemento (gana el cambio más nuevo y se respetan los borrados)
+const LISTAS_VIDA = ['tramites', 'turnos', 'proyectos', 'tareas', 'planes', 'objetivos', 'viajes', 'gcalBorrar'];
 
 const DEFAULT_CATS = ['ALIMENTO', 'SERVICIO', 'SALUD', 'TRANSPORTE', 'HOGAR', 'OCIO', 'ESTÉTICA', 'REGALO', 'MONOTRIBUTO', 'OTRO'];
 const PALETTE = ['#1f7a5a', '#2f6fb5', '#c0392b', '#d98c1f', '#7b4fb0', '#16a2a6', '#c2457a', '#6b8e23', '#8a6d3b', '#5f6b73', '#e05d2b', '#3d5a99'];
@@ -30,10 +34,7 @@ function emptyData() {
     config: {},
     informes: {},
     pasos: [],
-    tramites: [],
-    turnos: [],
-    proyectos: [],
-    tareas: [],
+    ...Object.fromEntries(LISTAS_VIDA.map(k => [k, []])),
     updatedAt: 0,
   };
 }
@@ -56,6 +57,44 @@ function loadLocal() {
     }
   } catch (e) { /* datos corruptos o storage bloqueado */ }
   return emptyData();
+}
+
+// ---------- Respaldos automáticos en el dispositivo ----------
+// Se guarda una copia una vez por día y antes de cualquier operación grande (conectar,
+// juntar con Mis Gastos, importar). Se guardan las dos últimas.
+function leerRespaldo(k = RESPALDO_KEY) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function guardarRespaldo(motivo) {
+  try {
+    const ant = localStorage.getItem(RESPALDO_KEY);
+    if (ant) localStorage.setItem(RESPALDO_KEY + '-anterior', ant);
+    localStorage.setItem(RESPALDO_KEY, JSON.stringify({ fecha: Date.now(), motivo, data }));
+  } catch (e) { /* sin espacio: seguimos igual */ }
+}
+function respaldoDiario() {
+  const r = leerRespaldo();
+  if (!r || Date.now() - r.fecha > 20 * 3600 * 1000) guardarRespaldo('copia diaria');
+}
+
+// Junta otra vez lo de Mis Gastos (de este dispositivo y de su backup en GitHub). Nunca borra nada de Nido.
+async function traerDeMisGastos({ avisar = true } = {}) {
+  guardarRespaldo('antes de traer lo de Mis Gastos');
+  let n = 0;
+  try {
+    const viejo = localStorage.getItem(OLD_STORE_KEY);
+    if (viejo) { data = mergeData(data, { ...normalize(JSON.parse(viejo)), config: data.config }); n++; }
+  } catch (e) { /* ignore */ }
+  if (ghConfig().token && navigator.onLine) {
+    try {
+      const gists = await gh('/gists?per_page=100');
+      const g = gists.filter(x => x.description === OLD_GIST_DESC && x.files && x.files[OLD_GIST_FILE])
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+      const remoto = g && await pullGist(g.id, OLD_GIST_FILE);
+      if (remoto) { data = mergeData(data, { ...remoto, config: data.config }); n++; }
+    } catch (e) { /* sin red o sin backup viejo */ }
+  }
+  if (n) save();
+  if (avisar) toast(n ? 'Listo: junté lo de Mis Gastos sin borrar nada' : 'No encontré datos de Mis Gastos');
+  return n;
 }
 
 function normalize(d) {
@@ -130,7 +169,7 @@ function persistLocal() {
 function save({ sync = true } = {}) {
   data.updatedAt = Date.now();
   persistLocal();
-  if (sync) schedulePush();
+  if (sync) { schedulePush(); programarGoogle(); }
   render();
 }
 function markDeleted(id) { data.borrados[id] = Date.now(); }
@@ -216,7 +255,7 @@ function totals(key) {
 // ---------- Render ----------
 const $ = sel => document.querySelector(sel);
 const FIN_VIEWS = ['gastos', 'resumen', 'ingresos', 'ahorro'];
-const TITULOS = { inicio: 'Nido', tramites: 'Trámites', turnos: 'Turnos médicos', proyectos: 'Proyectos', ajustes: 'Ajustes' };
+const TITULOS = { inicio: 'Nido', tramites: 'Trámites', turnos: 'Turnos médicos', proyectos: 'Proyectos', ajustes: 'Ajustes', semana: 'Mi semana', vacaciones: 'Vacaciones' };
 let view = 'inicio', ultimaFin = 'gastos';
 
 function render() {
@@ -254,6 +293,8 @@ function render() {
   if (view === 'tramites') renderTramites();
   if (view === 'turnos') renderTurnos();
   if (view === 'proyectos') renderProyectos();
+  if (view === 'semana') renderSemana();
+  if (view === 'vacaciones') renderVacaciones();
   actualizarAviso();
 }
 
@@ -340,6 +381,8 @@ function renderAjustes() {
   $('#ghInfo').textContent = 'Versión de la app: ' + APP_VERSION +
     (gh.gistId ? ' · Código de tu backup: ' + gh.gistId.slice(-5).toUpperCase() : ' · Sin conectar');
   renderAjustesAsesor();
+  renderAjustesDatos();
+  renderAjustesGoogle();
 }
 
 function autoGrow(el) {
@@ -356,10 +399,13 @@ function setView(v) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active',
     b.dataset.view === v || (b.dataset.view === 'finanzas' && FIN_VIEWS.includes(v))));
   document.querySelectorAll('#finTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-  $('#fab').hidden = !['gastos', 'resumen', 'inicio', 'tramites', 'turnos', 'proyectos'].includes(v);
-  $('#fab').setAttribute('aria-label', { tramites: 'Nuevo trámite', turnos: 'Nuevo turno', proyectos: 'Nuevo proyecto', inicio: 'Agregar' }[v] || 'Cargar gasto');
+  $('#fab').hidden = !['gastos', 'resumen', 'inicio', 'tramites', 'turnos', 'proyectos', 'semana', 'vacaciones'].includes(v);
+  $('#fab').setAttribute('aria-label', { tramites: 'Nuevo trámite', turnos: 'Nuevo turno', proyectos: 'Nuevo proyecto', inicio: 'Agregar', semana: 'Planear algo', vacaciones: 'Nuevo viaje' }[v] || 'Cargar gasto');
+  document.body.classList.toggle('ancho', v === 'proyectos' || v === 'semana');
   render();
   window.scrollTo(0, 0);
+  const activa = document.querySelector('.tabs button.active');
+  if (activa) activa.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
 // ---------- Hoja de edición ----------
@@ -541,6 +587,7 @@ function importJson(file) {
     try {
       const d = normalize(JSON.parse(r.result));
       if (!confirm('Esto reemplaza todos los datos del celu por los del archivo. ¿Seguir?')) return;
+      guardarRespaldo('antes de importar un archivo');
       data = d; save(); toast('Backup importado');
     } catch (e) { toast('Ese archivo no es un backup válido'); }
   };
@@ -566,9 +613,9 @@ async function gh(path, opts = {}) {
   return res.json();
 }
 
-async function pullGist(gistId) {
+async function pullGist(gistId, file = GIST_FILE) {
   const gist = await gh('/gists/' + gistId);
-  const f = gist.files && gist.files[GIST_FILE];
+  const f = gist.files && gist.files[file];
   if (!f) return null;
   const content = f.truncated ? await (await fetch(f.raw_url)).text() : f.content;
   return normalize(JSON.parse(content));
@@ -610,8 +657,11 @@ async function syncNow() {
   let failed = false;
   try {
     const before = fingerprint(data);
+    if (!c.gistId) guardarRespaldo('antes de conectar la sincronización');
     // Al abrir la app (y al conectar): encontrar el backup compartido y juntar duplicados
     if (!c.gistId || !unificado) { await unificarGists(c); unificado = true; }
+    // Una sola vez por dispositivo: sumar también lo que había en el backup de Mis Gastos
+    if (!c.migradoViejo) { await traerDeMisGastos({ avisar: false }); c.migradoViejo = true; setGhConfig({ ...ghConfig(), migradoViejo: true }); }
     const remote = c.gistId ? await pullGist(c.gistId) : null;
     if (remote) data = mergeData(data, remote);
     if (fingerprint(data) !== before) { persistLocal(); checkInformes(); render(); }
@@ -662,6 +712,8 @@ $('#fab').onclick = () => {
   if (view === 'tramites') return tramiteSheet();
   if (view === 'turnos') return turnoSheet();
   if (view === 'proyectos') return proyectoSheet();
+  if (view === 'semana') return planSheet(null, semanaHoyODia());
+  if (view === 'vacaciones') return viajeSheet();
   gastoSheet();
 };
 
@@ -730,13 +782,16 @@ $('#importJson').onchange = e => { if (e.target.files[0]) importJson(e.target.fi
 
 window.addEventListener('online', syncNow);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { render(); syncNow(); }
+  if (document.visibilityState === 'visible') { render(); syncNow(); programarGoogle(true); }
 });
 // Mientras la app está abierta, trae cada minuto lo cargado en el otro dispositivo
 setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, 60000);
 
 // ---------- Inicio ----------
+respaldoDiario();
 initVida();
+initPlan();
+initGoogle();
 setView('inicio');
 initAsesor();
 // Antes de que hable el estratega, esperar (un poco) a tener los datos del otro dispositivo

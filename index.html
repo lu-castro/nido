@@ -14,18 +14,29 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div class="cabecera">
 <header class="top">
   <button class="nav-btn" id="prevMonth" aria-label="Mes anterior">‹</button>
   <h1 id="monthTitle">Mes</h1>
   <button class="nav-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
   <button class="nav-btn gear" id="openAjustes" aria-label="Ajustes">⚙️</button>
 </header>
+<nav class="tabs" aria-label="Secciones">
+  <button data-view="inicio" class="active"><span>🪺</span>Inicio</button>
+  <button data-view="semana"><span>🗓️</span>Semana</button>
+  <button data-view="finanzas"><span>💰</span>Finanzas</button>
+  <button data-view="tramites"><span>📋</span>Trámites</button>
+  <button data-view="turnos"><span>🩺</span>Turnos</button>
+  <button data-view="proyectos"><span>🎯</span>Proyectos</button>
+  <button data-view="vacaciones"><span>🏖️</span>Vacaciones</button>
+</nav>
 <nav class="subtabs" id="finTabs" hidden>
   <button data-view="gastos">Gastos</button>
   <button data-view="resumen">Resumen</button>
   <button data-view="ingresos">Ingresos</button>
   <button data-view="ahorro">Ahorro</button>
 </nav>
+</div>
 
 <main>
   <!-- INICIO -->
@@ -39,6 +50,12 @@
 
   <!-- PROYECTOS -->
   <section class="view" id="view-proyectos" hidden><div id="proyectosBody"></div></section>
+
+  <!-- MI SEMANA -->
+  <section class="view" id="view-semana" hidden><div id="semanaBody"></div></section>
+
+  <!-- VACACIONES -->
+  <section class="view" id="view-vacaciones" hidden><div id="vacacionesBody"></div></section>
 
   <!-- FINANZAS: GASTOS -->
   <section class="view" id="view-gastos" hidden>
@@ -126,6 +143,24 @@
       <p class="muted small">Si no lo tildás, Lechuza te avisa con un puntito rojo y le hablás cuando quieras.</p>
     </div>
     <div class="card">
+      <h2>📅 Google Calendar</h2>
+      <p class="muted">Conectá tu cuenta de Google y tus turnos médicos se crean, cambian y borran solos en tu Calendar (con aviso un día antes y dos horas antes). Si movés un turno en Calendar, también se actualiza acá.</p>
+      <label class="label" for="gClientId">ID de cliente de Google (se configura una sola vez)</label>
+      <input id="gClientId" type="text" autocomplete="off" placeholder="1234…apps.googleusercontent.com">
+      <div class="row">
+        <button class="btn primary grow" id="gConectar">Conectar Google Calendar</button>
+        <button class="btn ghost" id="gDesconectar">Desconectar</button>
+      </div>
+      <p class="muted small" id="gEstado"></p>
+    </div>
+    <div class="card">
+      <h2>🛟 Tus datos</h2>
+      <p class="muted">Nido guarda una copia de seguridad en este dispositivo todos los días y antes de cada cambio grande. Al sincronizar nunca se borra nada: se juntan los datos de los dos dispositivos.</p>
+      <button class="btn secondary full" id="traerMisGastos">Traer otra vez lo de Mis Gastos</button>
+      <button class="btn ghost full" id="restaurarRespaldo">Volver a la copia de seguridad</button>
+      <p class="muted small" id="respaldoInfo"></p>
+    </div>
+    <div class="card">
       <h2>Sincronizar con GitHub</h2>
       <p class="muted">Guarda tus datos en un <i>Gist secreto</i> de tu cuenta de GitHub. Conectá la compu y el celu con tu token y lo que cargues en uno aparece en el otro.</p>
       <label class="label" for="ghToken">Token de GitHub (permiso "gist")</label>
@@ -161,13 +196,6 @@
 
 <button class="fab" id="fab" aria-label="Cargar gasto">+</button>
 
-<nav class="tabs">
-  <button data-view="inicio" class="active"><span>🪺</span>Inicio</button>
-  <button data-view="finanzas"><span>💰</span>Finanzas</button>
-  <button data-view="tramites"><span>📋</span>Trámites</button>
-  <button data-view="turnos"><span>🩺</span>Turnos</button>
-  <button data-view="proyectos"><span>🎯</span>Proyectos</button>
-</nav>
 
 <!-- Hoja para cargar/editar -->
 <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
@@ -194,9 +222,20 @@
   <div class="panel-body" id="informeBody"></div>
 </div>
 
+<!-- Detalle de un viaje -->
+<div class="panel" id="viajePanel" hidden>
+  <div class="panel-top">
+    <b id="viajeTitulo">Viaje</b>
+    <button class="nav-btn" id="viajeCerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <div class="panel-body" id="viajeBody"></div>
+</div>
+
 <script src="asesor.js"></script>
 <script src="chat.js"></script>
 <script src="vida.js"></script>
+<script src="plan.js"></script>
+<script src="google.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

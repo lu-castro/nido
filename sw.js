@@ -1,7 +1,7 @@
 // Guarda la app en el celu para que abra rápido y sin internet.
 // Cambiá la versión cada vez que subas cambios a GitHub.
-const CACHE = 'nido-v7';
-const FILES = ['./', 'index.html', 'styles.css', 'asesor.js', 'chat.js', 'vida.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'nido-v8';
+const FILES = ['./', 'index.html', 'styles.css', 'asesor.js', 'chat.js', 'vida.js', 'plan.js', 'google.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

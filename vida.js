@@ -44,7 +44,7 @@ function checklistHTML(kind, id, docs) {
 
 // ---------- Google Calendar ----------
 // Arma el link de "crear evento" de Google Calendar: se abre con todo completado y solo tocás Guardar.
-function gcalUrl({ titulo, fecha, hora, minutos = 60, detalles = '', lugar = '' }) {
+function gcalUrl({ titulo, fecha, hora, minutos = 60, detalles = '', lugar = '', hasta = '' }) {
   const ymd = d => d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
   const p = new URLSearchParams({ action: 'TEMPLATE', text: titulo });
   const ini = isoToDate(fecha);
@@ -56,7 +56,7 @@ function gcalUrl({ titulo, fecha, hora, minutos = 60, detalles = '', lugar = '' 
     p.set('dates', ymd(ini) + hms(ini) + '/' + ymd(fin) + hms(fin));
     try { p.set('ctz', Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (e) { /* ignore */ }
   } else {
-    const fin = new Date(ini); fin.setDate(fin.getDate() + 1);
+    const fin = hasta && hasta > fecha ? isoToDate(hasta) : new Date(ini); fin.setDate(fin.getDate() + 1);
     p.set('dates', ymd(ini) + '/' + ymd(fin));
   }
   p.set('details', (detalles ? detalles + '\n\n' : '') + 'Cargado desde Nido');
@@ -64,7 +64,8 @@ function gcalUrl({ titulo, fecha, hora, minutos = 60, detalles = '', lugar = '' 
   return 'https://calendar.google.com/calendar/render?' + p.toString();
 }
 
-const listaDe = k => ({ turno: data.turnos, tramite: data.tramites, tarea: data.tareas, proyecto: data.proyectos }[k]);
+const listaDe = k => ({ turno: data.turnos, tramite: data.tramites, tarea: data.tareas, proyecto: data.proyectos,
+  plan: data.planes, objetivo: data.objetivos, viaje: data.viajes, gcalBorrar: data.gcalBorrar }[k]);
 const buscar = (k, id) => (listaDe(k) || []).find(x => x.id === id);
 const llevar = docs => (docs && docs.length ? 'Llevar: ' + docs.map(d => d.t).join(', ') : '');
 
@@ -86,6 +87,14 @@ function eventoDe(clave) {
     const t = buscar('tarea', id); if (!t || !t.fecha) return null;
     const p = buscar('proyecto', t.proyectoId);
     return { item: t, campo: 'gcal', ev: { titulo: '✅ ' + t.texto, fecha: t.fecha, detalles: p ? 'Proyecto: ' + p.nombre : '' } };
+  }
+  if (tipo === 'plan') {
+    const p = buscar('plan', id); if (!p || !p.fecha) return null;
+    return { item: p, campo: 'gcal', ev: { titulo: '🗓️ ' + p.texto, fecha: p.fecha, hora: p.hora } };
+  }
+  if (tipo === 'viaje') {
+    const v = buscar('viaje', id); if (!v || !v.desde) return null;
+    return { item: v, campo: 'gcal', ev: { titulo: (v.emoji || '✈️') + ' Viaje a ' + v.destino, fecha: v.desde, hasta: v.hasta, detalles: v.notas || '' } };
   }
   if (tipo === 'proyecto') {
     const p = buscar('proyecto', id); if (!p || !p.limite) return null;
@@ -136,6 +145,13 @@ function agenda() {
   for (const p of data.proyectos) {
     if (p.estado === 'activo' && p.limite) out.push({ fecha: p.limite, ico: p.emoji || '🎯', titulo: p.nombre, tipo: 'proyecto', ref: 'proyecto:' + p.id, atrasable: true, sub: 'Fecha límite del proyecto' });
   }
+  for (const p of data.planes) {
+    if (!p.hecho && p.fecha) out.push({ fecha: p.fecha, hora: p.hora, ico: '🗓️', titulo: p.texto, tipo: 'plan', ref: 'plan:' + p.id, sub: 'Plan de tu semana' });
+  }
+  for (const v of data.viajes) {
+    if (v.desde && v.destino) out.push({ fecha: v.desde, ico: v.emoji || '✈️', titulo: 'Viaje a ' + v.destino, tipo: 'viaje', ref: 'viaje:' + v.id,
+      sub: v.hasta ? 'Hasta el ' + fechaCorta(v.hasta) : 'Vacaciones' });
+  }
   return out.sort((a, b) => a.fecha.localeCompare(b.fecha) || (a.hora || '99').localeCompare(b.hora || '99'));
 }
 function agendaAgrupada() {
@@ -175,7 +191,7 @@ function mensajesVida() {
 function abrirRef(ref) {
   const [k, id] = ref.split(':');
   const it = buscar(k, id); if (!it) return;
-  ({ turno: turnoSheet, tramite: tramiteSheet, tarea: tareaSheet, proyecto: proyectoSheet })[k](it);
+  ({ turno: turnoSheet, tramite: tramiteSheet, tarea: tareaSheet, proyecto: proyectoSheet, plan: planSheet, viaje: abrirViaje })[k](it);
 }
 
 function guardarEn(lista, item) {
@@ -259,7 +275,7 @@ function turnoSheet(t) {
       <label class="label" for="mNota">Nota</label>
       <textarea id="mNota" class="campo" rows="2" placeholder="Ej: ir en ayunas, pedir receta">${esc(t.nota)}</textarea>
       <label class="check"><input id="mCancel" type="checkbox" ${t.estado === 'cancelado' ? 'checked' : ''}> Se canceló</label>
-      ${!isNew && t.fecha ? `<div class="vcard-pie">${gcalBtn('turno:' + t.id, t.gcal)}</div>` : ''}`,
+      ${!isNew && t.fecha ? `<div class="vcard-pie">${turnoCalHTML(t)}</div>` : ''}`,
     onSubmit() {
       const fecha = $('#mFecha').value;
       if (!fecha) return toast('Poné la fecha del turno');
@@ -269,11 +285,13 @@ function turnoSheet(t) {
         estado: $('#mCancel').checked ? 'cancelado' : 'pendiente' };
       if (item.fecha !== t.fecha || item.hora !== t.hora) item.gcal = false;
       guardarEn(data.turnos, item); closeSheet(); save();
-      if (item.estado !== 'cancelado' && !item.gcal && fecha >= todayISO()) ofrecerCalendario('turno:' + item.id, 'Turno guardado. ¿Lo sumás a Calendar?');
+      if (googleActivo()) toast((isNew ? 'Turno guardado' : 'Turno actualizado') + (item.estado === 'cancelado' ? '' : ' · se sincroniza con tu Calendar'));
+      else if (item.estado !== 'cancelado' && !item.gcal && fecha >= todayISO()) ofrecerCalendario('turno:' + item.id, 'Turno guardado. ¿Lo sumás a Calendar?');
       else toast(isNew ? 'Turno guardado' : 'Turno actualizado');
     },
     onDelete: isNew ? null : () => {
-      if (!confirm('¿Borrar este turno?')) return;
+      if (!confirm('¿Borrar este turno?' + (t.gEventId ? ' También se borra de tu Google Calendar.' : ''))) return;
+      if (t.gEventId) data.gcalBorrar.push({ id: t.gEventId, mod: Date.now() });
       borrarDe('turno', t.id); closeSheet(); save(); toast('Turno borrado');
     },
   });
@@ -379,7 +397,9 @@ function menuNuevo() {
       <button type="button" data-nuevo="tramite"><span>📋</span>Trámite</button>
       <button type="button" data-nuevo="tarea"><span>✅</span>Tarea</button>
       <button type="button" data-nuevo="proyecto"><span>🎯</span>Proyecto</button>
-      <button type="button" data-nuevo="cerrar"><span>✕</span>Cancelar</button>
+      <button type="button" data-nuevo="plan"><span>🗓️</span>Plan de la semana</button>
+      <button type="button" data-nuevo="viaje"><span>🏖️</span>Viaje</button>
+      <button type="button" data-nuevo="cerrar" class="ancho2"><span>✕</span>Cancelar</button>
     </div>`,
   });
 }
@@ -390,6 +410,8 @@ function nuevo(tipo) {
   if (tipo === 'tramite') tramiteSheet();
   if (tipo === 'tarea') tareaSheet();
   if (tipo === 'proyecto') proyectoSheet();
+  if (tipo === 'plan') planSheet(null, todayISO());
+  if (tipo === 'viaje') viajeSheet();
 }
 
 // ---------- Pantallas ----------
@@ -445,6 +467,7 @@ function renderInicio() {
       <div class="card stat" data-ir="tramites"><span>📋 Trámites</span><b>${activos.length}</b><span>${activos.length ? (vencenPronto ? `${vencenPronto} vence${vencenPronto > 1 ? 'n' : ''} pronto` : 'en curso') : 'nada pendiente'}</span></div>
       <div class="card stat" data-ir="turnos"><span>🩺 Próximo turno</span><b>${prox ? esc(cuando(prox.fecha)) : '—'}</b><span>${prox ? esc(prox.especialidad || 'Turno médico') : 'sin turnos'}</span></div>
       <div class="card stat" data-ir="proyectos"><span>🎯 Proyectos</span><b>${proys.length}</b><span>${tareasP} tarea${tareasP === 1 ? '' : 's'} pendiente${tareasP === 1 ? '' : 's'}</span></div>
+      ${statViaje()}
     </div>`;
 }
 
@@ -496,57 +519,69 @@ function renderTurnos() {
         ${t.lugar ? `<div class="vcard-s">📍 ${esc(t.lugar)}</div>` : ''}
         ${!pasado ? checklistHTML('turno', t.id, t.docs) : ''}
         ${t.nota && !pasado ? `<div class="vcard-s nota">📝 ${esc(t.nota)}</div>` : ''}
-        ${!pasado ? `<div class="vcard-pie">${gcalBtn('turno:' + t.id, t.gcal)}</div>` : ''}
+        ${!pasado ? `<div class="vcard-pie">${turnoCalHTML(t)}</div>` : ''}
       </div>
     </div>`;
   };
   $('#turnosBody').innerHTML = `
+    ${googleBannerTurnos()}
     ${prox.length ? prox.map(t => card(t, false)).join('') : '<div class="empty">No tenés turnos próximos.<br>Tocá <b>+</b> para cargar uno y sumarlo a tu Google Calendar.</div>'}
     ${pasados.length ? `<details class="card"><summary>Turnos pasados (${pasados.length})</summary>${pasados.map(t => card(t, true)).join('')}</details>` : ''}`;
 }
 
-function tareaHTML(t, conFecha = true) {
+// ---------- Proyectos: tablero tipo Trello (una columna por proyecto) ----------
+function tarjetaTarea(t) {
   const n = t.fecha ? diasHasta(t.fecha) : null;
   const tarde = !t.hecha && n !== null && n < 0;
-  return `<div class="tarea${t.hecha ? ' hecha' : ''}">
+  return `<div class="tarjeta${t.hecha ? ' hecha' : ''}" draggable="true" data-drag="${t.id}">
     <button type="button" class="tcheck" data-ttoggle="${t.id}" aria-label="${t.hecha ? 'Marcar como pendiente' : 'Marcar como hecha'}">✓</button>
-    <span class="ttexto" data-abrir="tarea:${t.id}">${esc(t.texto)}${conFecha && t.fecha ? `<small class="${tarde ? 'rojo' : ''}">${tarde ? 'Atrasada · ' : ''}${esc(cuando(t.fecha))}</small>` : ''}</span>
+    <span class="ttexto" data-abrir="tarea:${t.id}">${esc(t.texto)}${t.fecha && !t.hecha ? `<small class="${tarde ? 'rojo' : ''}">${tarde ? 'Atrasada · ' : '📅 '}${esc(cuando(t.fecha))}</small>` : ''}</span>
   </div>`;
 }
-function bloqueTareas(pid) {
+function columnaTareas(pid) {
   const ts = data.tareas.filter(t => (t.proyectoId || '') === pid);
   const pend = ts.filter(t => !t.hecha).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999') || a.creado - b.creado);
   const hechas = ts.filter(t => t.hecha).sort((a, b) => b.mod - a.mod);
-  return `${pend.map(t => tareaHTML(t)).join('')}
-    ${hechas.length ? `<details><summary>Hechas (${hechas.length})</summary>${hechas.map(t => tareaHTML(t, false)).join('')}</details>` : ''}
+  return `<div class="tarjetas">${pend.map(tarjetaTarea).join('')}
+    ${hechas.length ? `<details class="hechas"><summary>✓ ${hechas.length} hecha${hechas.length > 1 ? 's' : ''}</summary>${hechas.map(tarjetaTarea).join('')}</details>` : ''}</div>
     <form class="tadd" data-tadd="${pid}"><input type="text" placeholder="+ Agregar tarea" aria-label="Nueva tarea" enterkeyhint="done"></form>`;
+}
+function columnaProyecto(p) {
+  const ts = data.tareas.filter(t => t.proyectoId === p.id), hechas = ts.filter(t => t.hecha).length;
+  const pct = ts.length ? Math.round((hechas / ts.length) * 100) : 0;
+  const n = p.limite ? diasHasta(p.limite) : null;
+  return `<section class="columna ${p.estado}" data-drop="${p.id}">
+    <div class="col-h" data-abrir="proyecto:${p.id}">
+      <span class="proy-emoji">${esc(p.emoji || '🎯')}</span>
+      <span class="mid"><b>${esc(p.nombre)}</b><small>${esc([p.estado !== 'activo' ? ESTADOS_PROYECTO[p.estado] : '', ts.length ? `${hechas} de ${ts.length}` : 'Sin tareas',
+        p.limite ? (n < 0 && p.estado === 'activo' ? 'se pasó la fecha' : 'hasta ' + cuando(p.limite).toLowerCase()) : ''].filter(Boolean).join(' · '))}</small></span>
+      <span class="col-mas" aria-hidden="true">⋯</span>
+    </div>
+    ${ts.length ? `<div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>` : ''}
+    ${p.descripcion ? `<div class="vcard-s nota">${esc(p.descripcion)}</div>` : ''}
+    ${columnaTareas(p.id)}
+    ${p.limite && p.estado === 'activo' ? `<div class="vcard-pie">${gcalBtn('proyecto:' + p.id, p.gcal, 'Fecha límite a Calendar')}</div>` : ''}
+  </section>`;
 }
 function renderProyectos() {
   const orden = { activo: 0, pausado: 1, terminado: 2 };
   const ps = data.proyectos.slice().sort((a, b) => orden[a.estado] - orden[b.estado] || (a.limite || '9999').localeCompare(b.limite || '9999'));
-  const card = p => {
-    const ts = data.tareas.filter(t => t.proyectoId === p.id), hechas = ts.filter(t => t.hecha).length;
-    const pct = ts.length ? Math.round((hechas / ts.length) * 100) : 0;
-    const n = p.limite ? diasHasta(p.limite) : null;
-    return `<div class="card proyecto ${p.estado}">
-      <div class="proy-h" data-abrir="proyecto:${p.id}">
-        <span class="proy-emoji">${esc(p.emoji || '🎯')}</span>
-        <span class="mid"><b>${esc(p.nombre)}</b><small>${esc([p.estado !== 'activo' ? ESTADOS_PROYECTO[p.estado] : '', ts.length ? `${hechas} de ${ts.length} tareas` : 'Sin tareas todavía',
-          p.limite ? (n < 0 && p.estado === 'activo' ? 'Se pasó la fecha' : 'Hasta ' + cuando(p.limite).toLowerCase()) : ''].filter(Boolean).join(' · '))}</small></span>
-        <span class="proy-pct">${ts.length ? pct + '%' : ''}</span>
-      </div>
-      ${ts.length ? `<div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>` : ''}
-      ${p.descripcion ? `<div class="vcard-s nota">${esc(p.descripcion)}</div>` : ''}
-      ${p.estado !== 'terminado' ? `<div class="tareas">${bloqueTareas(p.id)}</div>` : ''}
-      ${p.limite && p.estado === 'activo' ? `<div class="vcard-pie">${gcalBtn('proyecto:' + p.id, p.gcal, 'Fecha límite a Calendar')}</div>` : ''}
-    </div>`;
-  };
   const vivos = ps.filter(p => p.estado !== 'terminado'), terminados = ps.filter(p => p.estado === 'terminado');
+  const scroll = ($('.tablero') || {}).scrollLeft || 0;
   $('#proyectosBody').innerHTML = `
-    ${vivos.length ? vivos.map(card).join('') : '<div class="empty">No tenés proyectos activos.<br>Tocá <b>+</b> para crear uno: una mudanza, un viaje, un curso, algo del trabajo…</div>'}
-    <div class="card"><div class="proy-h"><span class="proy-emoji">📝</span><span class="mid"><b>Tareas sueltas</b><small>Cosas para hacer que no son de ningún proyecto</small></span></div>
-      <div class="tareas">${bloqueTareas('')}</div></div>
-    ${terminados.length ? `<details class="card"><summary>Proyectos terminados (${terminados.length})</summary>${terminados.map(card).join('')}</details>` : ''}`;
+    ${!vivos.length ? '<p class="muted">Cada proyecto es una columna con sus tareas. Creá el primero con <b>+</b> o con la columna de la derecha.</p>' : ''}
+    <div class="tablero">
+      ${vivos.map(columnaProyecto).join('')}
+      <section class="columna sueltas" data-drop="">
+        <div class="col-h"><span class="proy-emoji">📝</span><span class="mid"><b>Tareas sueltas</b><small>Lo que no es de ningún proyecto</small></span></div>
+        ${columnaTareas('')}
+      </section>
+      <button type="button" class="columna nueva" data-nuevo="proyecto"><span>＋</span>Nuevo proyecto</button>
+    </div>
+    <p class="muted small ayuda-tablero">Deslizá de costado para ver todos tus proyectos. Para pasar una tarea a otro proyecto, arrastrala (en la compu) o tocala y elegí el proyecto.</p>
+    ${terminados.length ? `<details class="card"><summary>Proyectos terminados (${terminados.length})</summary>${terminados.map(p =>
+      `<div class="ag-item" data-abrir="proyecto:${p.id}"><span class="ag-ico">${esc(p.emoji || '🎯')}</span><span class="mid"><b>${esc(p.nombre)}</b><small>${data.tareas.filter(t => t.proyectoId === p.id).length} tareas</small></span></div>`).join('')}</details>` : ''}`;
+  const t = $('.tablero'); if (t) t.scrollLeft = scroll;
 }
 
 // ---------- Lechuza: respuestas sobre tu agenda ----------
@@ -627,6 +662,8 @@ function responderVida(original, t) {
   if (/(nuevo|carga|cargar|cargame|anota|anotame|agenda|agendame|saque|sacar|agrega)\b.*\bturno/.test(t)) return RV.abrir('turno', 'Cargar turno');
   if (/(nuevo|carga|cargar|cargame|anota|anotame|agrega|agregame)\b.*\btramite/.test(t)) return RV.abrir('tramite', 'Cargar trámite');
   if (/(nuevo|crea|crear|creame|arma|armar|agrega|empezar)\b.*\bproyecto/.test(t)) return RV.abrir('proyecto', 'Crear proyecto');
+  if (/vacacion|viaje|viajo|valija|pasajes|me voy de/.test(t)) return RV.viajes();
+  if (/objetivos?|metas? de la semana|planifica|planear|plan de la semana/.test(t)) return RV.semana();
   if (/turnos?|medic|doctor|dentista|odontolog|ginecolog|dermatolog|analisis|estudios/.test(t)) return RV.turnos();
   if (/tramites?|vence|vencimiento|papeles|expediente|dni|pasaporte|licencia/.test(t)) return RV.tramites();
   if (/proyectos?|tareas?|to ?do|pendientes/.test(t)) return RV.proyectos();
@@ -660,6 +697,27 @@ function initVida() {
     const a = e.target.closest('main [data-abrir]');
     if (a && !e.target.closest('details summary, input, form')) abrirRef(a.dataset.abrir);
   }, true);
+
+  // Arrastrar tareas de un proyecto a otro (en la compu)
+  let arrastrando = null;
+  document.addEventListener('dragstart', e => {
+    const c = e.target.closest && e.target.closest('[data-drag]'); if (!c) return;
+    arrastrando = c.dataset.drag; c.classList.add('moviendo');
+    try { e.dataTransfer.setData('text/plain', arrastrando); e.dataTransfer.effectAllowed = 'move'; } catch (err) { /* ignore */ }
+  });
+  document.addEventListener('dragend', () => { arrastrando = null; document.querySelectorAll('.moviendo, .soltar').forEach(x => x.classList.remove('moviendo', 'soltar')); });
+  document.addEventListener('dragover', e => {
+    const col = arrastrando && e.target.closest && e.target.closest('[data-drop]'); if (!col) return;
+    e.preventDefault();
+    document.querySelectorAll('.soltar').forEach(x => x !== col && x.classList.remove('soltar'));
+    col.classList.add('soltar');
+  });
+  document.addEventListener('drop', e => {
+    const col = arrastrando && e.target.closest && e.target.closest('[data-drop]'); if (!col) return;
+    e.preventDefault();
+    const t = buscar('tarea', arrastrando);
+    if (t && (t.proyectoId || '') !== col.dataset.drop) { t.proyectoId = col.dataset.drop; t.mod = Date.now(); save(); toast('Tarea movida'); }
+  });
 
   // Agregar tarea escribiendo directo en el proyecto
   $('#view-proyectos').addEventListener('submit', e => {
